@@ -33,6 +33,7 @@ class ProxyTestSettingsFragment : PreferenceFragmentCompat() {
 
     override fun onResume() {
         super.onResume()
+        updatePreferences()
         sharedPreferences?.registerOnSharedPreferenceChangeListener(preferenceListener)
     }
 
@@ -43,18 +44,17 @@ class ProxyTestSettingsFragment : PreferenceFragmentCompat() {
 
     private fun updatePreferences() {
         val switchUserCommands = findPreferenceNotNull<SwitchPreference>("byedpi_proxytest_usercommands")
-        val textUserDomains = findPreferenceNotNull<EditTextPreference>("byedpi_proxytest_domains")
         val textUserCommands = findPreferenceNotNull<EditTextPreference>("byedpi_proxytest_commands")
-        val domainLists = findPreferenceNotNull<MultiSelectListPreference>("byedpi_proxytest_domain_lists")
+        val manageDomainLists = findPreferenceNotNull<Preference>("manage_domain_lists")
+        val activeLists = DomainListUtils.getLists(requireContext()).filter { it.isActive }
 
-        val setUserCommands = { enable: Boolean -> textUserCommands.isEnabled = enable }
-
-        textUserDomains.isEnabled = domainLists.values?.contains("custom") == true
-        setUserCommands(switchUserCommands.isChecked)
-
-        if (domainLists.values?.isNotEmpty() == true) {
-            domainLists.summary = domainLists.values.joinToString("\n")
+        manageDomainLists.summary = if (activeLists.isEmpty()) {
+            getString(R.string.domain_lists_summary)
+        } else {
+            activeLists.joinToString(", ") { it.name }
         }
+
+        textUserCommands.isEnabled = switchUserCommands.isChecked
     }
 
     private fun setupNumberSummary(key: String, descriptionResId: Int) {

@@ -3,7 +3,7 @@ package io.github.romanvht.byedpi.services
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Intent
-import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
 import androidx.lifecycle.LifecycleService
@@ -47,6 +47,9 @@ class ByeDpiProxyService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+
+        startForeground()
+
         return when (val action = intent?.action) {
             START_ACTION -> {
                 lifecycleScope.launch {
@@ -92,16 +95,12 @@ class ByeDpiProxyService : LifecycleService() {
 
         if (status == ServiceStatus.Connected) {
             Log.w(TAG, "Proxy already connected")
+            updateStatus(ServiceStatus.Connected)
             return
         }
 
         try {
-            startForeground()
             mutex.withLock {
-                if (status == ServiceStatus.Connected) {
-                    Log.w(TAG, "Proxy already connected")
-                    return@withLock
-                }
                 startProxy()
                 updateStatus(ServiceStatus.Connected)
             }
@@ -118,7 +117,7 @@ class ByeDpiProxyService : LifecycleService() {
             startForeground(
                 FOREGROUND_SERVICE_ID,
                 notification,
-                FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
             )
         } else {
             startForeground(FOREGROUND_SERVICE_ID, notification)
@@ -128,13 +127,19 @@ class ByeDpiProxyService : LifecycleService() {
     private suspend fun stop() {
         Log.i(TAG, "Stopping")
 
+        if (status != ServiceStatus.Connected) {
+            Log.w(TAG, "Proxy not connected")
+            updateStatus(ServiceStatus.Disconnected)
+            return
+        }
+
         mutex.withLock {
             withContext(Dispatchers.IO) {
                 stopProxy()
             }
-            updateStatus(ServiceStatus.Disconnected)
         }
 
+        updateStatus(ServiceStatus.Disconnected)
         stopSelf()
     }
 
@@ -151,16 +156,14 @@ class ByeDpiProxyService : LifecycleService() {
 
         proxyJob = lifecycleScope.launch(Dispatchers.IO) {
             val code = proxy.startProxy(preferences)
+
             delay(500)
 
             if (code != 0) {
                 Log.e(TAG, "Proxy stopped with code $code")
                 updateStatus(ServiceStatus.Failed)
-            } else {
-                updateStatus(ServiceStatus.Disconnected)
+                stopSelf()
             }
-
-            stopSelf()
         }
 
         Log.i(TAG, "Proxy started")
@@ -197,7 +200,7 @@ class ByeDpiProxyService : LifecycleService() {
     }
 
     private fun getByeDpiPreferences(): ByeDpiProxyPreferences =
-        ByeDpiProxyPreferences.fromSharedPreferences(getPreferences())
+        ByeDpiProxyPreferences.fromSharedPreferences(getPreferences(), this)
 
     private fun updateStatus(newStatus: ServiceStatus) {
         Log.d(TAG, "Proxy status changed from $status to $newStatus")
@@ -225,6 +228,10 @@ class ByeDpiProxyService : LifecycleService() {
         )
         intent.putExtra(SENDER, Sender.Proxy.ordinal)
         sendBroadcast(intent)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            QuickTileService.updateTile()
+        }
     }
 
     private fun createNotification(): Notification =

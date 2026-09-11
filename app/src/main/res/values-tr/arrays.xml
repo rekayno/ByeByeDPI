@@ -6,6 +6,7 @@
         <item name="en">English</item>
         <item name="tr">Türkçe</item>
         <item name="kk">Қазақша</item>
+        <item name="vi">Tiếng Việt</item>
     </array>
 
     <array name="themes">
@@ -16,23 +17,13 @@
 
     <array name="byedpi_hosts_modes">
         <item name="disable">Kapalı</item>
-        <item name="blacklist">Karaliste</item>
-        <item name="whitelist">Beyazliste</item>
+        <item name="blacklist">Kara liste</item>
+        <item name="whitelist">Beyaz liste</item>
     </array>
 
     <array name="applist_types">
         <item name="disable">Kapalı</item>
-        <item name="blacklist">Karaliste</item>
-        <item name="whitelist">Beyazliste</item>
-    </array>
-
-    <array name="domain_lists_entries">
-        <item>YouTube</item>
-        <item>GoogleVideo</item>
-        <item>Discord</item>
-        <item>Cloudflare</item>
-        <item>Sosyal</item>
-        <item>Genel</item>
-        <item>Listeniz</item>
+        <item name="blacklist">Kara liste</item>
+        <item name="whitelist">Beyaz liste</item>
     </array>
 </resources>

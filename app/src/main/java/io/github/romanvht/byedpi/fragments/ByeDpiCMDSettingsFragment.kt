@@ -1,22 +1,29 @@
 package io.github.romanvht.byedpi.fragments
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
+import android.net.VpnService
 import android.os.Bundle
 import android.view.View
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.preference.*
 import io.github.romanvht.byedpi.R
 import io.github.romanvht.byedpi.utility.findPreferenceNotNull
 import androidx.appcompat.app.AlertDialog
+import io.github.romanvht.byedpi.data.AppStatus
 import io.github.romanvht.byedpi.data.Command
+import io.github.romanvht.byedpi.data.Mode
+import io.github.romanvht.byedpi.services.ServiceManager
+import io.github.romanvht.byedpi.services.appStatus
+import io.github.romanvht.byedpi.utility.ClipboardUtils
 import io.github.romanvht.byedpi.utility.HistoryUtils
+import io.github.romanvht.byedpi.utility.getCmdArgs
+import io.github.romanvht.byedpi.utility.getPreferences
+import io.github.romanvht.byedpi.utility.mode
 
-class ByeDpiCommandLineSettingsFragment : PreferenceFragmentCompat() {
+class ByeDpiCMDSettingsFragment : PreferenceFragmentCompat() {
 
     private lateinit var cmdHistoryUtils: HistoryUtils
     private lateinit var editTextPreference: EditTextPreference
@@ -29,11 +36,17 @@ class ByeDpiCommandLineSettingsFragment : PreferenceFragmentCompat() {
         cmdHistoryUtils = HistoryUtils(requireContext())
 
         editTextPreference = findPreferenceNotNull("byedpi_cmd_args")
+        editTextPreference.text = requireContext().getPreferences().getCmdArgs()
         historyHeader = findPreferenceNotNull("cmd_history_header")
 
         editTextPreference.setOnPreferenceChangeListener { _, newValue ->
             val newCommand = newValue.toString()
-            if (newCommand.isNotBlank()) cmdHistoryUtils.addCommand(newCommand)
+
+            if (newCommand.isNotBlank()) {
+                cmdHistoryUtils.addCommand(newCommand)
+                restartService()
+            }
+
             updateHistoryItems()
             true
         }
@@ -56,15 +69,11 @@ class ByeDpiCommandLineSettingsFragment : PreferenceFragmentCompat() {
             }
 
             view.findViewById<View>(R.id.btn_paste)?.setOnClickListener {
-                val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clipData = clipboard.primaryClip
-                if (clipData != null && clipData.itemCount > 0) {
-                    val text = clipData.getItemAt(0).text?.toString()
-                    if (!text.isNullOrBlank()) {
-                        editTextPreference.text = text
-                        cmdHistoryUtils.addCommand(text)
-                        updateHistoryItems()
-                    }
+                val text = ClipboardUtils.paste(requireContext())
+                if (!text.isNullOrBlank()) {
+                    editTextPreference.text = text
+                    cmdHistoryUtils.addCommand(text)
+                    updateHistoryItems()
                 }
             }
         }
@@ -185,7 +194,7 @@ class ByeDpiCommandLineSettingsFragment : PreferenceFragmentCompat() {
                     1 -> if (command.pinned) unpinCommand(command.text) else pinCommand(command.text)
                     2 -> showRenameDialog(command)
                     3 -> showEditDialog(command)
-                    4 -> copyToClipboard(command.text)
+                    4 -> ClipboardUtils.copy(requireContext(), command.text, "command")
                     5 -> deleteCommand(command.text)
                 }
             }
@@ -246,6 +255,7 @@ class ByeDpiCommandLineSettingsFragment : PreferenceFragmentCompat() {
     private fun applyCommand(command: String) {
         editTextPreference.text = command
         updateHistoryItems()
+        restartService()
     }
 
     private fun pinCommand(command: String) {
@@ -263,9 +273,14 @@ class ByeDpiCommandLineSettingsFragment : PreferenceFragmentCompat() {
         updateHistoryItems()
     }
 
-    private fun copyToClipboard(command: String) {
-        val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("Command", command)
-        clipboard.setPrimaryClip(clip)
+    private fun restartService() {
+        if (appStatus.first == AppStatus.Running) {
+            val ctx = context ?: return
+            val mode = ctx.getPreferences().mode()
+            if (mode == Mode.VPN && VpnService.prepare(ctx) != null) return
+
+            ServiceManager.restart(ctx, mode)
+            Toast.makeText(ctx, R.string.service_restart, Toast.LENGTH_SHORT).show()
+        }
     }
 }

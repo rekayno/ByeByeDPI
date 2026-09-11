@@ -57,6 +57,9 @@ class ByeDpiVpnService : LifecycleVpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+
+        startForeground()
+
         return when (val action = intent?.action) {
             START_ACTION -> {
                 lifecycleScope.launch {
@@ -89,6 +92,22 @@ class ByeDpiVpnService : LifecycleVpnService() {
                 START_NOT_STICKY
             }
 
+            SERVICE_INTERFACE -> {
+                Log.i(TAG, "Started by Android")
+
+                if (getPreferences().mode() != Mode.VPN) {
+                    Log.w(TAG, "Always-On disabled in proxy mode")
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+
+                lifecycleScope.launch {
+                    start()
+                }
+
+                START_STICKY
+            }
+
             else -> {
                 Log.w(TAG, "Unknown action: $action")
                 START_NOT_STICKY
@@ -109,16 +128,12 @@ class ByeDpiVpnService : LifecycleVpnService() {
 
         if (status == ServiceStatus.Connected) {
             Log.w(TAG, "VPN already connected")
+            updateStatus(ServiceStatus.Connected)
             return
         }
 
         try {
-            startForeground()
             mutex.withLock {
-                if (status == ServiceStatus.Connected) {
-                    Log.w(TAG, "VPN already connected")
-                    return@withLock
-                }
                 startProxy()
                 startTun2Socks()
                 updateStatus(ServiceStatus.Connected)
@@ -136,7 +151,7 @@ class ByeDpiVpnService : LifecycleVpnService() {
             startForeground(
                 FOREGROUND_SERVICE_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED,
             )
         } else {
             startForeground(FOREGROUND_SERVICE_ID, notification)
@@ -145,6 +160,12 @@ class ByeDpiVpnService : LifecycleVpnService() {
 
     private suspend fun stop() {
         Log.i(TAG, "Stopping")
+
+        if (status != ServiceStatus.Connected) {
+            Log.w(TAG, "VPN not connected")
+            updateStatus(ServiceStatus.Disconnected)
+            return
+        }
 
         mutex.withLock {
             try {
@@ -155,9 +176,9 @@ class ByeDpiVpnService : LifecycleVpnService() {
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to stop VPN", e)
             }
-            updateStatus(ServiceStatus.Disconnected)
         }
 
+        updateStatus(ServiceStatus.Disconnected)
         stopSelf()
     }
 
@@ -173,17 +194,15 @@ class ByeDpiVpnService : LifecycleVpnService() {
 
         proxyJob = lifecycleScope.launch(Dispatchers.IO) {
             val code = byeDpiProxy.startProxy(preferences)
+
             delay(500)
 
             if (code != 0) {
                 Log.e(TAG, "Proxy stopped with code $code")
                 updateStatus(ServiceStatus.Failed)
-            } else {
-                updateStatus(ServiceStatus.Disconnected)
+                stopTun2Socks()
+                stopSelf()
             }
-
-            stopTun2Socks()
-            stopSelf()
         }
 
         Log.i(TAG, "Proxy started")
@@ -223,13 +242,14 @@ class ByeDpiVpnService : LifecycleVpnService() {
         Log.i(TAG, "Starting tun2socks")
 
         if (tunFd != null) {
+            Log.w(TAG, "VPN field not null")
             throw IllegalStateException("VPN field not null")
         }
 
         val sharedPreferences = getPreferences()
         val (ip, port) = sharedPreferences.getProxyIpAndPort()
 
-        val dns = sharedPreferences.getStringNotNull("dns_ip", "8.8.8.8")
+        val dns = sharedPreferences.getStringNotNull("dns_ip", "1.1.1.1")
         val ipv6 = sharedPreferences.getBoolean("ipv6_enable", false)
 
         val tun2socksConfig = buildString {
@@ -267,6 +287,11 @@ class ByeDpiVpnService : LifecycleVpnService() {
     private fun stopTun2Socks() {
         Log.i(TAG, "Stopping tun2socks")
 
+        if (tunFd == null) {
+            Log.w(TAG, "VPN field is null, skipping")
+            return
+        }
+
         try {
             TProxyService.TProxyStopService()
         } catch (e: Exception) {
@@ -291,7 +316,7 @@ class ByeDpiVpnService : LifecycleVpnService() {
     }
 
     private fun getByeDpiPreferences(): ByeDpiProxyPreferences =
-        ByeDpiProxyPreferences.fromSharedPreferences(getPreferences())
+        ByeDpiProxyPreferences.fromSharedPreferences(getPreferences(), this)
 
     private fun updateStatus(newStatus: ServiceStatus) {
         Log.d(TAG, "VPN status changed from $status to $newStatus")
@@ -320,6 +345,10 @@ class ByeDpiVpnService : LifecycleVpnService() {
         )
         intent.putExtra(SENDER, Sender.VPN.ordinal)
         sendBroadcast(intent)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            QuickTileService.updateTile()
+        }
     }
 
     private fun createNotification(): Notification =

@@ -6,6 +6,7 @@
         <item name="en">English</item>
         <item name="tr">Türkçe</item>
         <item name="kk">Қазақша</item>
+        <item name="vi">Tiếng Việt</item>
     </array>
     <array name="languages_entries">
         <item name="system">system</item>
@@ -13,6 +14,7 @@
         <item name="en">en</item>
         <item name="tr">tr</item>
         <item name="kk">kk</item>
+        <item name="vi">vi</item>
     </array>
 
     <array name="themes">
@@ -72,28 +74,5 @@
         <item name="disable">disable</item>
         <item name="blacklist">blacklist</item>
         <item name="whitelist">whitelist</item>
-    </array>
-
-    <array name="domain_lists_entries">
-        <item>YouTube</item>
-        <item>GoogleVideo</item>
-        <item>Discord</item>
-        <item>Cloudflare</item>
-        <item>Социальные</item>
-        <item>Общий</item>
-        <item>Свой список</item>
-    </array>
-    <array name="domain_lists_values">
-        <item>youtube</item>
-        <item>googlevideo</item>
-        <item>discord</item>
-        <item>cloudflare</item>
-        <item>social</item>
-        <item>general</item>
-        <item>custom</item>
-    </array>
-    <array name="domain_lists_default">
-        <item>youtube</item>
-        <item>googlevideo</item>
     </array>
 </resources>

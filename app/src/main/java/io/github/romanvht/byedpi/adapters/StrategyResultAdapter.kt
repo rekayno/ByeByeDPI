@@ -1,8 +1,6 @@
 package io.github.romanvht.byedpi.adapters
 
 import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.view.LayoutInflater
 import android.view.View
@@ -18,13 +16,14 @@ import io.github.romanvht.byedpi.R
 import io.github.romanvht.byedpi.data.StrategyResult
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
+import io.github.romanvht.byedpi.utility.ClipboardUtils
 
 class StrategyResultAdapter(
     private val context: Context,
-    private val onApply: (String) -> Unit,
-    private val onConnect: (String) -> Unit
+    private val onApply: (String) -> Unit
 ) : RecyclerView.Adapter<StrategyResultAdapter.StrategyViewHolder>() {
 
+    private var isTesting = false
     private val strategies = mutableListOf<StrategyResult>()
 
     class StrategyViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -40,7 +39,24 @@ class StrategyResultAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): StrategyViewHolder {
         val view = LayoutInflater.from(parent.context).inflate(R.layout.item_strategy_result, parent, false)
-        return StrategyViewHolder(view)
+        val holder = StrategyViewHolder(view)
+
+        holder.commandTextView.setOnClickListener {
+            val position = holder.bindingAdapterPosition
+            if (position != RecyclerView.NO_POSITION) {
+                showCommandMenu(strategies[position].command)
+            }
+        }
+
+        holder.expandButton.setOnClickListener {
+            val position = holder.bindingAdapterPosition
+            if (position != RecyclerView.NO_POSITION) {
+                strategies[position].isExpanded = !strategies[position].isExpanded
+                notifyItemChanged(position)
+            }
+        }
+
+        return holder
     }
 
     @SuppressLint("SetTextI18n")
@@ -48,21 +64,21 @@ class StrategyResultAdapter(
         val strategy = strategies[position]
 
         holder.commandTextView.text = strategy.command
-        holder.commandTextView.setOnClickListener {
-            showCommandMenu(strategy.command)
-        }
 
-        if (strategy.maxProgress > 0) {
+        if (strategy.totalRequests > 0) {
             holder.progressLayout.visibility = View.VISIBLE
-            holder.progressBar.max = strategy.maxProgress
             holder.progressTextView.visibility = View.VISIBLE
 
-            if (strategy.isCompleted) {
-                holder.progressBar.progress = strategy.successCount
+            val isProgress = isTesting && !strategy.isCompleted
+
+            if (isProgress) {
+                holder.progressBar.isIndeterminate = true
                 holder.progressTextView.text = "${strategy.successCount}/${strategy.totalRequests}"
             } else {
-                holder.progressBar.progress = strategy.currentProgress
-                holder.progressTextView.text = "${strategy.currentProgress}/${strategy.maxProgress}"
+                holder.progressBar.isIndeterminate = false
+                holder.progressBar.max = strategy.totalRequests
+                holder.progressBar.progress = strategy.successCount
+                holder.progressTextView.text = "${strategy.successCount}/${strategy.totalRequests}"
             }
         } else {
             holder.progressLayout.visibility = View.GONE
@@ -70,11 +86,6 @@ class StrategyResultAdapter(
 
         if (strategy.siteResults.isNotEmpty()) {
             holder.expandButton.visibility = View.VISIBLE
-
-            holder.expandButton.setOnClickListener {
-                strategy.isExpanded = !strategy.isExpanded
-                notifyItemChanged(position)
-            }
 
             if (strategy.isExpanded) {
                 holder.expandTextView.text = context.getString(R.string.test_hide_details)
@@ -96,27 +107,29 @@ class StrategyResultAdapter(
         }
     }
 
+    @SuppressLint("SetTextI18n")
     override fun onBindViewHolder(holder: StrategyViewHolder, position: Int, payloads: MutableList<Any>) {
         if (payloads.isEmpty()) {
             super.onBindViewHolder(holder, position, payloads)
         } else {
             val strategy = strategies[position]
 
-            if (strategy.maxProgress > 0) {
-                holder.progressBar.progress = if (strategy.isCompleted) strategy.successCount else strategy.currentProgress
-                holder.progressTextView.text = if (strategy.isCompleted) {
-                    "${strategy.successCount}/${strategy.totalRequests}"
+            if (strategy.totalRequests > 0) {
+                val isProgress = isTesting && !strategy.isCompleted
+
+                if (isProgress) {
+                    holder.progressBar.isIndeterminate = true
+                    holder.progressTextView.text = "${strategy.successCount}/${strategy.totalRequests}"
                 } else {
-                    "${strategy.currentProgress}/${strategy.maxProgress}"
+                    holder.progressBar.isIndeterminate = false
+                    holder.progressBar.max = strategy.totalRequests
+                    holder.progressBar.progress = strategy.successCount
+                    holder.progressTextView.text = "${strategy.successCount}/${strategy.totalRequests}"
                 }
             }
 
             if (strategy.siteResults.isNotEmpty() && holder.expandButton.isGone) {
                 holder.expandButton.visibility = View.VISIBLE
-                holder.expandButton.setOnClickListener {
-                    strategy.isExpanded = !strategy.isExpanded
-                    notifyItemChanged(position)
-                }
             }
 
             if (strategy.isExpanded && holder.sitesRecyclerView.isVisible) {
@@ -128,8 +141,15 @@ class StrategyResultAdapter(
         }
     }
 
+    override fun getItemCount(): Int {
+        return strategies.size
+    }
 
-    override fun getItemCount() = strategies.size
+    @SuppressLint("NotifyDataSetChanged")
+    fun setTestingState(testing: Boolean) {
+        isTesting = testing
+        notifyDataSetChanged()
+    }
 
     @SuppressLint("NotifyDataSetChanged")
     fun updateStrategies(newStrategies: List<StrategyResult>, sortByPercentage: Boolean = true) {
@@ -149,8 +169,7 @@ class StrategyResultAdapter(
 
     private fun showCommandMenu(command: String) {
         val menuItems = arrayOf(
-            context.getString(R.string.test_cmd_connect),
-            context.getString(R.string.test_cmd_apply),
+            context.getString(R.string.cmd_history_apply),
             context.getString(R.string.cmd_history_copy)
         )
 
@@ -158,17 +177,10 @@ class StrategyResultAdapter(
             .setTitle(context.getString(R.string.cmd_history_menu))
             .setItems(menuItems) { _, which ->
                 when (which) {
-                    0 -> onConnect(command)
-                    1 -> onApply(command)
-                    2 -> copyToClipboard(command)
+                    0 -> onApply(command)
+                    1 -> ClipboardUtils.copy(context, command, "command")
                 }
             }
             .show()
-    }
-
-    private fun copyToClipboard(text: String) {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("command", text)
-        clipboard.setPrimaryClip(clip)
     }
 }

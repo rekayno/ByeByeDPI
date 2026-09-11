@@ -31,6 +31,8 @@ import androidx.core.content.edit
 import io.github.romanvht.byedpi.utility.getStringNotNull
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import io.github.romanvht.byedpi.utility.DomainListUtils
+import io.github.romanvht.byedpi.utility.getCmdArgs
 import io.github.romanvht.byedpi.utility.mode
 import kotlinx.coroutines.*
 import java.io.File
@@ -64,6 +66,7 @@ class TestActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_proxy_test)
+        setupToolbar()
 
         val ip = prefs.getStringNotNull("byedpi_proxy_ip", "127.0.0.1")
         val port = prefs.getIntStringNotNull("byedpi_proxy_port", 1080)
@@ -79,9 +82,6 @@ class TestActivity : BaseActivity() {
         strategyAdapter = StrategyResultAdapter(this,
             onApply = { command ->
                 addToHistory(command)
-            },
-            onConnect = { command ->
-                addAndConnect(command)
             }
         )
 
@@ -147,6 +147,10 @@ class TestActivity : BaseActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            R.id.action_copy_log -> {
+                copyLog()
+                true
+            }
             R.id.action_settings -> {
                 if (!isTesting) {
                     val intent = Intent(this, TestSettingsActivity::class.java)
@@ -195,7 +199,7 @@ class TestActivity : BaseActivity() {
 
         testJob = lifecycleScope.launch(Dispatchers.IO) {
             isTesting = true
-            savedCmd = prefs.getString("byedpi_cmd_args", "").orEmpty()
+            savedCmd = prefs.getCmdArgs()
 
             strategies.clear()
             strategies.addAll(cmds.map { StrategyResult(command = it) })
@@ -206,6 +210,8 @@ class TestActivity : BaseActivity() {
                 window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 startStopButton.text = getString(R.string.test_stop)
                 progressTextView.text = ""
+
+                strategyAdapter.setTestingState(true)
                 strategyAdapter.updateStrategies(strategies, sortByPercentage = false)
             }
 
@@ -241,7 +247,6 @@ class TestActivity : BaseActivity() {
                 delay(delaySec * 500L)
 
                 val totalRequests = sites.size * requestsCount
-                strategy.maxProgress = totalRequests
                 strategy.totalRequests = totalRequests
 
                 withContext(Dispatchers.Main) {
@@ -307,7 +312,9 @@ class TestActivity : BaseActivity() {
                 startStopButton.text = getString(R.string.test_start)
                 progressTextView.text = getString(R.string.test_complete)
 
+                strategyAdapter.setTestingState(false)
                 strategyAdapter.updateStrategies(strategies, sortByPercentage = true)
+
                 saveResults(strategies)
             }
         }
@@ -318,37 +325,18 @@ class TestActivity : BaseActivity() {
             updateCmdArgs(command)
             cmdHistoryUtils.addCommand(command)
 
-            if (isProxyRunning()) {
-                ServiceManager.stop(this@TestActivity)
-                waitForProxyStatus(AppStatus.Halted)
-            }
-
-            withContext(Dispatchers.Main) {
-                Toast.makeText(this@TestActivity, R.string.cmd_history_applied, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    private fun addAndConnect(command: String) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            updateCmdArgs(command)
-            cmdHistoryUtils.addCommand(command)
-
-            if (isProxyRunning()) {
-                ServiceManager.stop(this@TestActivity)
-                waitForProxyStatus(AppStatus.Halted)
-            }
-
             val mode = prefs.mode()
+            if (mode == Mode.VPN && VpnService.prepare(this@TestActivity) != null) return@launch
 
-            if (mode == Mode.VPN && VpnService.prepare(this@TestActivity) != null) {
-                return@launch
+            val toastText = if (appStatus.first == AppStatus.Running) {
+                ServiceManager.restart(this@TestActivity, mode)
+                R.string.service_restart
+            } else {
+                R.string.cmd_history_applied
             }
 
-            ServiceManager.start(this@TestActivity, mode)
-
             withContext(Dispatchers.Main) {
-                Toast.makeText(this@TestActivity, R.string.test_cmd_connected, Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@TestActivity, toastText, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -375,25 +363,8 @@ class TestActivity : BaseActivity() {
     }
 
     private fun loadSites(): List<String> {
-        val defaultDomainLists = setOf("youtube", "googlevideo")
-        val selectedDomainLists = prefs.getStringSet("byedpi_proxytest_domain_lists", defaultDomainLists) ?: return emptyList()
-
-        val allDomains = mutableListOf<String>()
-
-        for (domainList in selectedDomainLists) {
-            val domains = when (domainList) {
-                "custom" -> {
-                    val customDomains = prefs.getString("byedpi_proxytest_domains", "").orEmpty()
-                    customDomains.lines().map { it.trim() }.filter { it.isNotEmpty() }
-                }
-                else -> {
-                    assets.open("proxytest_$domainList.sites").bufferedReader().useLines { it.toList() }
-                }
-            }
-            allDomains.addAll(domains)
-        }
-
-        return allDomains.distinct()
+        DomainListUtils.syncLists(this)
+        return DomainListUtils.getActiveDomains(this)
     }
 
     private fun loadCmds(): List<String> {
@@ -402,10 +373,38 @@ class TestActivity : BaseActivity() {
 
         return if (userCommands) {
             val content = prefs.getStringNotNull("byedpi_proxytest_commands", "")
-            content.replace("{sni}", sniValue).lines().map { it.trim() }.filter { it.isNotEmpty() }
+            content.replace("{sni}", "\"${sniValue}\"").lines().map { it.trim() }.filter { it.isNotEmpty() }
         } else {
             val content = assets.open("proxytest_strategies.list").bufferedReader().readText()
-            content.replace("{sni}", sniValue).lines().map { it.trim() }.filter { it.isNotEmpty() }
+            content.replace("{sni}", "\"${sniValue}\"").lines().map { it.trim() }.filter { it.isNotEmpty() }
         }
+    }
+
+    private fun copyLog() {
+        val completeStrategies = strategies.filter { it.isCompleted }
+
+        if (completeStrategies.isEmpty()) {
+            Toast.makeText(this, R.string.toast_copied, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val sb = StringBuilder()
+
+        completeStrategies.forEach { strategy ->
+            sb.appendLine("${strategy.command}\n")
+
+            strategy.siteResults.forEach { site ->
+                sb.appendLine("${site.site} - ${site.successCount}/${site.totalCount}")
+            }
+
+            sb.appendLine("\n${strategy.successCount}/${strategy.totalRequests}")
+            sb.appendLine("-------------")
+        }
+
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = android.content.ClipData.newPlainText("proxy_test_log", sb.toString())
+        clipboard.setPrimaryClip(clip)
+
+        Toast.makeText(this, R.string.toast_copied, Toast.LENGTH_SHORT).show()
     }
 }

@@ -7,6 +7,8 @@ import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceManager
 import io.github.romanvht.byedpi.data.Mode
 
+private const val DEFAULT_CMD_ARGS = "-o1 -a1 -r-5+se"
+
 val PreferenceFragmentCompat.sharedPreferences
     get() = preferenceScreen.sharedPreferences
 
@@ -32,11 +34,17 @@ fun SharedPreferences.getSelectedApps(): List<String> {
     return getStringSet("selected_apps", emptySet())?.toList() ?: emptyList()
 }
 
-fun SharedPreferences.checkIpAndPortInCmd(): Pair<String?, String?> {
-    val cmdEnable = getBoolean("byedpi_enable_cmd_settings", false)
-    if (!cmdEnable) return Pair(null, null)
+fun SharedPreferences.getCmdEnable(): Boolean {
+    return getBoolean("byedpi_enable_cmd_settings", true)
+}
 
-    val cmdArgs = getString("byedpi_cmd_args", "")?.let { shellSplit(it) } ?: emptyList()
+fun SharedPreferences.getCmdArgs(): String {
+    return getStringNotNull("byedpi_cmd_args", DEFAULT_CMD_ARGS)
+}
+
+fun SharedPreferences.checkIpAndPortInCmd(): Pair<String?, String?> {
+    if (!getCmdEnable()) return Pair(null, null)
+    val cmdArgs = shellSplit(getCmdArgs())
 
     fun getArgValue(argsList: List<String>, keys: List<String>): String? {
         for (i in argsList.indices) {

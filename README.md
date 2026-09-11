@@ -18,11 +18,11 @@
 
 Приложение для Android, которое локально запускает ByeDPI и перенаправляет весь трафик через него.
 
-Для стабильной работы может потребоваться изменить настройки. Подробнее о различных настройках можно прочитать в [документации ByeDPI](https://github.com/hufrea/byedpi/blob/v0.13/README.md).
+Для стабильной работы может потребоваться изменить настройки. Подробнее о различных настройках можно прочитать в [документации ByeDPI](https://github.com/hufrea/byedpi/blob/main/README.md).
 
 Приложение не является VPN. Оно использует VPN-режим на Android для перенаправления трафика, но не передает ничего на удаленный сервер. Оно не шифрует трафик и не скрывает ваш IP-адрес.
 
-Приложения является форком [ByeDPIAndroid](https://github.com/dovecoteescapee/ByeDPIAndroid)
+У приложения есть единственный официальный сайт -> https://byebyedpi.xyz
 
 ---
 
@@ -37,17 +37,7 @@
 * Для работы автозапуска активируйте пункт в настройках.
 * Рекомендуется подключится один раз к VPN, чтобы принять запрос.
 * После этого, при загрузке устройства, приложение автоматически запустит сервис в зависимости от настроек (VPN/Proxy)
-* Комплексная инструкция от комьюнити [ByeByeDPI-Manual](https://github.com/BDManual/ByeByeDPI-Manual)
-
-### Как использовать ByeByeDPI вместе с AdGuard?
-* Запустите ByeByeDPI в режиме прокси.
-* Добавьте ByeByeDPI в исключения AdGuard на вкладке "Управление приложениями".
-* В настройках AdGuard укажите прокси:
-```plaintext
-Тип прокси: SOCKS5
-Хост: 127.0.0.1
-Порт: 1080 (по умолчанию)
-```
+* Комплексная инструкция от комьюнити [ByeByeDPI-Manual](https://byebyedpi.xyz)
 
 ### Сборка
 1. Клонируйте репозиторий с сабмодулями:
@@ -63,9 +53,13 @@ git clone --recurse-submodules
 > P.S.: hev_socks5_tunnel не соберется под Windows, вам нужно будет использовать WSL
 
 ### Хеш подписи
-SHA-256: 
+SHA-256:
 `77:45:10:75:AC:EA:40:64:06:47:5D:74:D4:59:88:3A:49:A6:40:51:FA:F3:2E:42:F7:18:F3:F9:77:7A:8D:FB`
 
 ### Зависимости
 - [ByeDPI](https://github.com/hufrea/byedpi)
 - [hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel)
+
+### Благодарность
+- [hufrea](https://github.com/hufrea) - за [ByeDPI](https://github.com/hufrea/byedpi)
+- [dovecoteescapee](https://github.com/dovecoteescapee) - за изначальную реализацию [ByeDPIAndroid](https://github.com/dovecoteescapee/ByeDPIAndroid)

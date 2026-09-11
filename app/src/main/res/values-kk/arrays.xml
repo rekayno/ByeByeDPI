@@ -4,8 +4,9 @@
         <item name="system">Автоматты</item>
         <item name="ru">Орыс</item>
         <item name="en">Ағылшын</item>
-        <item name="tr">Түрік</item>
+        <item name="tr">Türkçe</item>
         <item name="kk">Қазақша</item>
+        <item name="vi">Tiếng Việt</item>
     </array>
 
     <array name="themes">
@@ -24,15 +25,5 @@
         <item name="disable">Өшіру</item>
         <item name="blacklist">Қара тізім</item>
         <item name="whitelist">Ақ тізім</item>
-    </array>
-
-    <array name="domain_lists_entries">
-        <item>YouTube</item>
-        <item>GoogleVideo</item>
-        <item>Discord</item>
-        <item>Cloudflare</item>
-        <item>Әлеуметтік</item>
-        <item>Жалпы</item>
-        <item>Сіздің тізіміңіз</item>
     </array>
 </resources>

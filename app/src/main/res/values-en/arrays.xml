@@ -6,6 +6,7 @@
         <item name="en">English</item>
         <item name="tr">Türkçe</item>
         <item name="kk">Қазақша</item>
+        <item name="vi">Tiếng Việt</item>
     </array>
 
     <array name="themes">
@@ -24,15 +25,5 @@
         <item name="disable">Disable</item>
         <item name="blacklist">Blacklist</item>
         <item name="whitelist">Whitelist</item>
-    </array>
-
-    <array name="domain_lists_entries">
-        <item>YouTube</item>
-        <item>GoogleVideo</item>
-        <item>Discord</item>
-        <item>Cloudflare</item>
-        <item>Social</item>
-        <item>General</item>
-        <item>Your list</item>
     </array>
 </resources>

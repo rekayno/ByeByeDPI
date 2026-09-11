@@ -1,21 +1,28 @@
 package io.github.romanvht.byedpi.activities
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ArrayAdapter
+import android.widget.ListView
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.lifecycle.lifecycleScope
 import io.github.romanvht.byedpi.R
 import io.github.romanvht.byedpi.data.*
@@ -25,27 +32,28 @@ import io.github.romanvht.byedpi.services.appStatus
 import io.github.romanvht.byedpi.utility.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.io.IOException
+import java.io.File
 import kotlin.system.exitProcess
-import androidx.core.content.edit
 
 class MainActivity : BaseActivity() {
     private lateinit var binding: ActivityMainBinding
+    private lateinit var historyUtils: HistoryUtils
 
     companion object {
         private val TAG: String = MainActivity::class.java.simpleName
         private const val BATTERY_OPTIMIZATION_REQUESTED = "battery_optimization_requested"
 
-        private fun collectLogs(): String? =
-            try {
-                Runtime.getRuntime()
-                    .exec("logcat *:D -d")
-                    .inputStream.bufferedReader()
-                    .use { it.readText() }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to collect logs", e)
+        private fun collectLogs(): String? {
+            return try {
+                val process = Runtime.getRuntime().exec("logcat *:D -d")
+                process.inputStream.bufferedReader().use { reader ->
+                    reader.readText()
+                }
+            } catch (exception: Exception) {
+                Log.e(TAG, "Failed to collect logs", exception)
                 null
             }
+        }
     }
 
     private val vpnRegister =
@@ -58,34 +66,46 @@ class MainActivity : BaseActivity() {
             }
         }
 
-    private val logsRegister =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { log ->
-            lifecycleScope.launch(Dispatchers.IO) {
-                val logs = collectLogs()
+    private val logsRegister = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+        ::handleLogsFileResult
+    )
 
-                if (logs == null) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        R.string.logs_failed,
-                        Toast.LENGTH_SHORT
-                    ).show()
+    private fun handleLogsFileResult(result: ActivityResult) {
+        if (result.resultCode != RESULT_OK) return
+        val data = result.data ?: return
+        val uri = data.data
+        val path = data.getStringExtra(FileActivity.EXTRA_PATH)
+        val file = if (path == null) null else File(path)
+        if (uri == null && file == null) return
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val logs = collectLogs()
+            if (logs == null) {
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, R.string.logs_failed, Toast.LENGTH_SHORT).show()
+                }
+                return@launch
+            }
+
+            try {
+                val outputStream = when {
+                    uri != null -> contentResolver.openOutputStream(uri)
+                    file != null -> file.outputStream()
+                    else -> null
+                }
+                if (outputStream == null) {
+                    Log.e(TAG, "Failed to open output stream")
                 } else {
-                    val uri = log.data?.data ?: run {
-                        Log.e(TAG, "No data in result")
-                        return@launch
-                    }
-                    contentResolver.openOutputStream(uri)?.use {
-                        try {
-                            it.write(logs.toByteArray())
-                        } catch (e: IOException) {
-                            Log.e(TAG, "Failed to save logs", e)
-                        }
-                    } ?: run {
-                        Log.e(TAG, "Failed to open output stream")
+                    outputStream.use { stream ->
+                        stream.write(logs.toByteArray())
                     }
                 }
+            } catch (exception: Exception) {
+                Log.e(TAG, "Failed to save logs", exception)
             }
         }
+    }
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -126,6 +146,9 @@ class MainActivity : BaseActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        setupToolbar()
+
+        historyUtils = HistoryUtils(this)
 
         val intentFilter = IntentFilter().apply {
             addAction(STARTED_BROADCAST)
@@ -163,19 +186,6 @@ class MainActivity : BaseActivity() {
             }
         }
 
-        binding.editorButton.setOnClickListener {
-            val (status, _) = appStatus
-
-            if (status == AppStatus.Halted) {
-                val intent = Intent(this, SettingsActivity::class.java)
-                val useCmdSettings = getPreferences().getBoolean("byedpi_enable_cmd_settings", false)
-                intent.putExtra("open_fragment", if (useCmdSettings) "cmd" else "ui")
-                startActivity(intent)
-            } else {
-                Toast.makeText(this, R.string.settings_unavailable, Toast.LENGTH_SHORT).show()
-            }
-        }
-
         binding.settingsButton.setOnClickListener {
             val (status, _) = appStatus
 
@@ -187,9 +197,35 @@ class MainActivity : BaseActivity() {
             }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        binding.editorButton.setOnClickListener {
+            val useCmdSettings = getPreferences().getCmdEnable()
+
+            if (!useCmdSettings && appStatus.first == AppStatus.Running) {
+                Toast.makeText(this, R.string.settings_unavailable, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val intent = Intent(this, SettingsActivity::class.java)
+            intent.putExtra("open_fragment", if (useCmdSettings) "cmd" else "ui")
+            startActivity(intent)
+        }
+
+        binding.testProxyButton.setOnClickListener {
+            startActivity(Intent(this, TestActivity::class.java))
+        }
+
+        binding.domainListsButton.setOnClickListener {
+            val intent = Intent(this, TestSettingsActivity::class.java)
+            intent.putExtra("open_fragment", "domain_lists")
+            startActivity(intent)
+        }
+
+        binding.strategyButton.setOnClickListener {
+            showStrategyPicker()
+        }
+
+        if (!PermissionUtils.hasNotificationPermission(this)) {
+            PermissionUtils.requestNotificationPermission(this, 1)
         } else {
             requestBatteryOptimization()
         }
@@ -204,6 +240,7 @@ class MainActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         updateStatus()
+        updateStrategyButton()
     }
 
     override fun onDestroy() {
@@ -232,14 +269,15 @@ class MainActivity : BaseActivity() {
         val (status, _) = appStatus
 
         return when (item.itemId) {
-            R.id.action_save_logs -> {
-                val intent =
-                    Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TITLE, "byedpi.log")
-                    }
+            R.id.action_diagnostics -> {
+                showDiagnostics()
+                true
+            }
 
+            R.id.action_save_logs -> {
+                val intent = Intent(this, FileActivity::class.java)
+                intent.putExtra(FileActivity.EXTRA_MODE, FileActivity.MODE_CREATE)
+                intent.putExtra(FileActivity.EXTRA_TYPE, FileActivity.TYPE_LOGS)
                 logsRegister.launch(intent)
                 true
             }
@@ -253,6 +291,40 @@ class MainActivity : BaseActivity() {
 
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun showDiagnostics() {
+        val report = DiagnosticUtils.buildReport(this)
+        val padding = (24 * resources.displayMetrics.density).toInt()
+
+        val textView = TextView(this).apply {
+            text = report
+            setPadding(padding, padding / 2, padding, padding / 2)
+        }
+
+        val scrollView = ScrollView(this).apply {
+            addView(textView)
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.diagnostics)
+            .setView(scrollView)
+            .setPositiveButton(R.string.diagnostic_copy) { _, _ ->
+                ClipboardUtils.copy(this, report, getString(R.string.diagnostics))
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+
+        dialog.setOnShowListener {
+            val copyButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            val cancelButton = dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
+            copyButton.nextFocusLeftId = cancelButton.id
+            copyButton.nextFocusRightId = cancelButton.id
+            cancelButton.nextFocusLeftId = copyButton.id
+            cancelButton.nextFocusRightId = copyButton.id
+            copyButton.requestFocus()
+        }
+        dialog.show()
     }
 
     private fun start() {
@@ -319,12 +391,122 @@ class MainActivity : BaseActivity() {
         }
     }
 
+    private fun updateStrategyButton() {
+        val useCmdSettings = getPreferences().getCmdEnable()
+
+        if (!useCmdSettings) {
+            binding.cmdButtonsRow.visibility = View.GONE
+            binding.strategyButton.visibility = View.GONE
+            return
+        }
+
+        binding.cmdButtonsRow.visibility = View.VISIBLE
+
+        val pinned = historyUtils.getPinnedHistory()
+        val currentCmdArgs = getPreferences().getCmdArgs()
+
+        val matched = pinned.find { it.text == currentCmdArgs }
+        val name = matched?.name?.takeIf { it.isNotBlank() }
+
+        if (name != null) {
+            binding.strategyButtonName.text = name
+            binding.strategyButtonName.visibility = View.VISIBLE
+            binding.strategyButtonText.maxLines = 1
+        } else {
+            binding.strategyButtonName.visibility = View.GONE
+            binding.strategyButtonText.maxLines = 2
+        }
+
+        binding.strategyButtonText.text = currentCmdArgs.ifBlank { getString(R.string.main_strategy_picker) }
+        binding.strategyButton.visibility = View.VISIBLE
+    }
+
+    private fun showStrategyPicker() {
+        val pinned = historyUtils.getPinnedHistory()
+
+        if (pinned.isEmpty()) {
+            Toast.makeText(this, R.string.main_strategy_no_pinned, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val adapter = object : ArrayAdapter<Command>(
+            this,
+            R.layout.item_main_strategy,
+            pinned
+        ) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = convertView ?: layoutInflater.inflate(
+                    R.layout.item_main_strategy,
+                    parent,
+                    false
+                )
+
+                val command = getItem(position)!!
+
+                val nameView = view.findViewById<TextView>(R.id.strategyName)
+                val textView = view.findViewById<TextView>(R.id.strategyText)
+                val dividerView = view.findViewById<View>(R.id.strategyDivider)
+
+                val name = command.name?.takeIf { it.isNotBlank() }
+
+                if (name != null) {
+                    nameView.visibility = View.VISIBLE
+                    nameView.text = name
+                    textView.maxLines = 2
+                } else {
+                    nameView.visibility = View.GONE
+                    textView.maxLines = 3
+                }
+
+                textView.text = command.text
+                dividerView.visibility = if (position == count - 1) View.GONE else View.VISIBLE
+
+                return view
+            }
+        }
+
+        val listView = ListView(this).apply {
+            divider = null
+            setPadding(0, (10 * resources.displayMetrics.density).toInt(), 0, 0)
+            this.adapter = adapter
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(getString(R.string.main_strategy_picker))
+            .setView(listView)
+            .setNegativeButton(getString(android.R.string.cancel), null)
+            .create()
+
+        listView.setOnItemClickListener { _, _, position, _ ->
+            applyStrategy(pinned[position].text)
+            dialog.dismiss()
+        }
+
+        dialog.show()
+    }
+
+    private fun applyStrategy(commandText: String) {
+        getPreferences().edit { putString("byedpi_cmd_args", commandText) }
+
+        updateStrategyButton()
+
+        if (appStatus.first == AppStatus.Running) {
+            val mode = getPreferences().mode()
+            if (mode == Mode.VPN && VpnService.prepare(this) != null) {
+                return
+            }
+
+            ServiceManager.restart(this, mode)
+            Toast.makeText(this, R.string.service_restart, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun requestBatteryOptimization() {
         val preferences = getPreferences()
         val alreadyRequested = preferences.getBoolean(BATTERY_OPTIMIZATION_REQUESTED, false)
 
-        if (!alreadyRequested && !BatteryUtils.isOptimizationDisabled(this)) {
-            BatteryUtils.requestBatteryOptimization(this)
+        if (!alreadyRequested && !PermissionUtils.isBatteryOptimizationDisabled(this)) {
+            PermissionUtils.requestBatteryOptimization(this)
             preferences.edit { putBoolean(BATTERY_OPTIMIZATION_REQUESTED, true) }
         }
     }
